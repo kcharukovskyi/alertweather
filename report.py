@@ -45,15 +45,19 @@ def save(fig, name):
 
 def fig_main(main):
     fig, axes = plt.subplots(1, 2, figsize=FIGSIZE["panel_2"])
-    for c, m in zip(COLORS, ["hgb", "logit", "pers"]):
+    for c, m in zip(COLORS, ["hgb", "logit"]):
         skill_line(axes[0], main, m, c, NAMES[m])
     lo = main[main["model"] != "pers"]["bss_lo"].min()
-    bss_axes(axes[0], "A. Skill vs lead (95% day-bootstrap CI)", ymin=min(lo, 0) - 0.1)
+    bss_axes(axes[0], "A. Skill vs lead (95% day-bootstrap CI)", ymin=min(lo, 0) - 0.02)
+    pers = main[main["model"] == "pers"]["bss"]
+    axes[0].text(0.03, 0.04, f"Persistence: BSS {pers.min():.2f} to {pers.max():.2f}\n(off scale, see B)",
+                 transform=axes[0].transAxes, ha="left", va="bottom", fontsize=15,
+                 bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor=COLORS[6], alpha=0.9))
     axes[0].legend(loc="upper right")
     ax = axes[1]
     for c, m in zip(COLORS, ["hgb", "logit", "pers", "clim"]):
         t = main[main["model"] == m].sort_values("lead")
-        ax.plot(t["lead"], t["brier"], "o-", color=c if m != "clim" else COLORS[6], label=NAMES[m],
+        ax.plot(t["lead"], t["brier"], marker="o", color=c if m != "clim" else COLORS[6], label=NAMES[m],
                 ls="--" if m == "clim" else "-")
     ax.set_xscale("log")
     ax.set_xticks(LEADS, [str(L) for L in LEADS])
@@ -61,6 +65,7 @@ def fig_main(main):
     ax.set_ylim(0, min(main["brier"].max() * 1.05, 0.5))
     ax.set_xlabel("Lead time, hours")
     ax.set_ylabel("Brier score (lower is better)")
+    ax.legend(loc="center right")
     ax.text(0.5, -0.22, "B. Brier score", transform=ax.transAxes, fontsize=FS, ha="center", va="top")
     save(fig, "fig1_skill_vs_lead.png")
 
@@ -75,7 +80,7 @@ def fig_ablation(main, abl):
         skill_line(ax, tab, m, c, lab)
     bss_axes(ax, "Cumulative feature groups, gradient boosting",
              ymin=min(tab["bss_lo"].min(), 0) - 0.05)
-    ax.legend(loc="upper right")
+    ax.legend(loc="lower right")
     save(fig, "fig2_ablation.png")
     return tab
 
@@ -113,16 +118,22 @@ def fig_calibration(pred):
 
 def fig_robustness(main, window, naive):
     fig, axes = plt.subplots(1, 2, figsize=FIGSIZE["panel_2"])
-    panels = [(axes[0], window, "hgb_last_60d", "Last 2 months", "A. Training window"),
-              (axes[1], naive, "hgb_no_naive", "Without naive records", "B. Records with invented end")]
-    for ax, tab, m, lab, title in panels:
-        skill_line(ax, main, "hgb", COLORS[0], "Last 12 months (main)")
-        if tab is not None:
-            skill_line(ax, tab, m, COLORS[1], lab)
-        ymin = min(main.query("model=='hgb'")["bss_lo"].min(),
-                   tab.query("model==@m")["bss_lo"].min() if tab is not None else 0, 0) - 0.05
-        bss_axes(ax, title, ymin=ymin)
-        ax.legend(loc="upper right")
+    ax = axes[0]
+    for c, m, name in [(COLORS[0], "hgb", "Gradient boosting"), (COLORS[1], "logit", "Logistic")]:
+        skill_line(ax, main, m, c, f"{name}, 12 months")
+        if window is not None:
+            skill_line(ax, window, f"{m}_last_60d", c, f"{name}, 2 months", ls="--")
+    lows = [main["bss_lo"][main["model"] != "pers"].min()] + \
+           ([window["bss_lo"].min()] if window is not None else [])
+    bss_axes(ax, "A. Training window", ymin=min(lows + [0]) - 0.01)
+    ax.legend(loc="upper right", fontsize=13)
+
+    ax = axes[1]
+    skill_line(ax, main, "hgb", COLORS[0], "All records (main)")
+    if naive is not None:
+        skill_line(ax, naive, "hgb_no_naive", COLORS[0], "Without naive records", ls="--")
+    bss_axes(ax, "B. Records with invented end (gradient boosting)", ymin=-0.01)
+    ax.legend(loc="upper right", fontsize=13)
     save(fig, "fig5_robustness.png")
 
 

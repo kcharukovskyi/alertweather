@@ -7,6 +7,8 @@ any moment of the hour **[τ+L, τ+L+1h)**, issued at instant **τ**, for leads
 **Forecast horizon** = the largest lead at which a model is *significantly* better than
 climatology: Brier Skill Score (BSS) > 0 and the 95% day-block bootstrap interval excludes zero.
 
+**Interactive dashboard:** https://kcharukovskyi.github.io/alertweather/ (built from `results/` by `tools/build_dashboard.py`).
+
 <!-- RESULTS -->
 
 ## Data
@@ -93,6 +95,7 @@ Ablation adds groups cumulatively (A → AB → ABC → ABCD → ABCDE) with gra
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python run.py main ablation window naive   # downloads data, ~15-20 min on 8 cores
 .venv/bin/python report.py                           # figures + tables in results/
+.venv/bin/python tools/build_dashboard.py            # docs/index.html for GitHub Pages
 ```
 
 ## Layout
@@ -104,5 +107,7 @@ alerts/geo.py       adjacency + centroids from GeoJSON
 alerts/features.py  feature groups and the leakage-safe design matrix
 alerts/evaluate.py  weekly walk-forward, BSS with day-block bootstrap, horizon
 run.py / report.py  experiments / figures and tables
+tools/              dashboard builder + template, AI-log exporter
+docs/               GitHub Pages site (generated)
 results/            scores_*.csv, horizons.csv, bss_by_lead.csv, figures/
 ```

@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alert Forecast Skill</title>
+<meta name="description" content="How far ahead air-raid alerts in Ukraine can be forecast per oblast: skill vs climatology by lead time, feature ablation, regions, calibration.">
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<style>
+:root {
+  --page: #f9f9f7; --surface-1: #fcfcfb; --text-primary: #0b0b0b; --text-secondary: #52514e;
+  --muted: #898781; --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100; --series-5: #e87ba4;
+  --accent-bg: #e8f0fb;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #0d0d0d; --surface-1: #1a1a19; --text-primary: #f0efec; --text-secondary: #c3c2b7;
+    --muted: #898781; --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --series-5: #d55181;
+    --accent-bg: #1c2a3d;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #0d0d0d; --surface-1: #1a1a19; --text-primary: #f0efec; --text-secondary: #c3c2b7;
+  --muted: #898781; --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500; --series-5: #d55181;
+  --accent-bg: #1c2a3d;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text-primary);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 24px 16px 48px; }
+header h1 { font-size: 26px; margin: 0 0 4px; font-weight: 650; }
+header p { margin: 0; color: var(--text-secondary); }
+a { color: var(--series-1); }
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+.tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.tile .v { font-size: 28px; font-weight: 650; }
+.tile .k { color: var(--text-secondary); font-size: 13px; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; margin: 8px 0 16px;
+  position: sticky; top: 0; z-index: 5; background: var(--page); padding: 10px 0; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
+.seg button { border: 0; background: var(--surface-1); color: var(--text-secondary); padding: 7px 12px;
+  font: inherit; font-size: 14px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent-bg); color: var(--text-primary); font-weight: 600; }
+label.ctl { color: var(--text-secondary); font-size: 14px; }
+select { font: inherit; font-size: 14px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--surface-1); color: var(--text-primary); }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 14px 6px; min-width: 0; }
+.card.wide { grid-column: 1 / -1; }
+.card h2 { font-size: 16px; margin: 0; font-weight: 600; }
+.card .sub { color: var(--text-secondary); font-size: 13px; margin: 2px 0 6px; }
+.plot { width: 100%; height: 380px; overflow: hidden; }
+#regions { height: 620px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--text-secondary); font-weight: 600; }
+.tablewrap { overflow-x: auto; margin-bottom: 8px; }
+details { margin-top: 16px; }
+summary { cursor: pointer; font-weight: 600; }
+.method { color: var(--text-secondary); font-size: 14px; }
+.method li { margin: 4px 0; }
+footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
+@media (max-width: 860px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .plot { height: 320px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>How far ahead can air-raid alerts be forecast?</h1>
+  <p>Probability that an oblast is under alert in the hour starting at τ+L, 24 oblasts, weekly walk-forward.
+     Skill = Brier Skill Score vs a 28-day hour-of-day climatology, with 95% day-bootstrap intervals.
+     <a href="https://github.com/kcharukovskyi/alertweather">Code and method</a>.</p>
+</header>
+
+<section class="tiles" id="tiles" aria-label="Key numbers"></section>
+
+<div class="controls" role="group" aria-label="Filters">
+  <div class="seg" id="exp" role="group" aria-label="Comparison">
+    <button data-v="models">Models</button><button data-v="ablation">Feature groups</button>
+    <button data-v="window">Training window</button><button data-v="naive">Naive records</button>
+  </div>
+  <label class="ctl">Model <select id="model"><option value="hgb">Gradient boosting</option><option value="logit">Logistic regression</option></select></label>
+  <label class="ctl">Lead <select id="lead"></select></label>
+  <div class="seg" id="theme" role="group" aria-label="Theme">
+    <button data-v="auto">Auto</button><button data-v="light">Light</button><button data-v="dark">Dark</button>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card wide"><h2 id="exp-title"></h2><div class="sub" id="exp-note"></div><div class="plot" id="skill"></div></div>
+  <div class="card"><h2>By region group</h2><div class="sub">Selected model; shaded band = 95% CI.</div><div class="plot" id="groups"></div></div>
+  <div class="card"><h2>Calibration</h2><div class="sub" id="calib-sub"></div><div class="plot" id="calib"></div></div>
+  <div class="card wide"><h2>By oblast</h2><div class="sub" id="regions-sub"></div><div class="plot" id="regions"></div></div>
+  <div class="card wide"><h2>Table view</h2><div class="sub">BSS [95% CI] by lead for the selected comparison; horizon = largest lead with CI above 0 (strict: before the CI first touches 0).</div>
+    <div class="tablewrap" id="table"></div><div class="tablewrap" id="htable"></div></div>
+</div>
+
+<details><summary>Method in brief</summary>
+<ul class="method">
+  <li>Data: volunteer (eTryvoga) oblast-level alert records from the Vadimkin dataset; records longer than 12 h dropped; overlapping intervals merged.</li>
+  <li>Target: alert at any moment of the hour [τ+L, τ+L+1h), for L = 1, 2, 3, 6, 12, 24, 48, 72 h.</li>
+  <li>No leakage: features use only hours that ended by τ; climatology is shifted back by whole days so its newest hour ended by τ; the model is refit every 7 days on labels already observed at the refit time.</li>
+  <li>Test: issue times <span id="m-period"></span> (Kyiv), <span id="m-days"></span> days, identical for every lead.</li>
+  <li>CI: 500–2000 bootstrap resamples of calendar days.</li>
+</ul></details>
+
+<footer id="foot"></footer>
+</div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const D = JSON.parse(document.getElementById("data").textContent);
+const LEADS = D.leads;
+const state = { exp: "models", model: "hgb", lead: 1, theme: "auto" };
+try { Object.assign(state, JSON.parse(localStorage.getItem("dash-state") || "{}")); } catch (e) {}
+const save = () => { try { localStorage.setItem("dash-state", JSON.stringify(state)); } catch (e) {} };
+const MODEL_LABEL = { hgb: "Gradient boosting", logit: "Logistic regression" };
+const GROUP_LABEL = { front: "Front-line", center: "Center", west: "West" };
+const f3 = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(3);
+
+function T() {
+  const s = getComputedStyle(document.documentElement), c = n => s.getPropertyValue(n).trim();
+  return { series: [1, 2, 3, 4, 5].map(i => c("--series-" + i)), ink: c("--text-primary"), ink2: c("--text-secondary"),
+           muted: c("--muted"), grid: c("--grid"), axis: c("--axis"), surface: c("--surface-1") };
+}
+function rgba(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+}
+function layout(t, ytitle, extra = {}) {
+  return Object.assign({
+    paper_bgcolor: t.surface, plot_bgcolor: t.surface,
+    font: { family: 'system-ui, -apple-system, "Segoe UI", sans-serif', color: t.ink2, size: 13 },
+    margin: { l: 60, r: 12, t: 36, b: 48 },
+    xaxis: { type: "log", tickvals: LEADS, ticktext: LEADS.map(String), title: { text: "Lead time, hours" },
+             gridcolor: t.grid, linecolor: t.axis, zeroline: false, fixedrange: true },
+    yaxis: { title: { text: ytitle }, gridcolor: t.grid, linecolor: t.axis, zeroline: false, tickformat: ".2f", fixedrange: true },
+    shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { color: t.muted, width: 1, dash: "dash" } }],
+    hovermode: "x unified", hoverlabel: { bgcolor: t.surface, bordercolor: t.axis, font: { color: t.ink } },
+    legend: { orientation: "h", x: 0, y: 1.01, yanchor: "bottom", font: { color: t.ink2 } }, showlegend: true,
+  }, extra);
+}
+function skillTraces(t, rows, label, color, dash) {
+  const x = rows.map(r => r.lead), lo = rows.map(r => r.bss_lo), hi = rows.map(r => r.bss_hi);
+  return [
+    { x: [...x, ...x.slice().reverse()], y: [...hi, ...lo.slice().reverse()], type: "scatter", mode: "lines", fill: "toself",
+      fillcolor: rgba(color, 0.13), line: { width: 0 }, hoverinfo: "skip", showlegend: false },
+    { x, y: rows.map(r => r.bss), name: label, type: "scatter", mode: "lines+markers",
+      line: { color, width: 2, dash }, marker: { size: 8, color, line: { color: t.surface, width: 2 } },
+      customdata: rows.map(r => [r.bss_lo, r.bss_hi]),
+      hovertemplate: `${label}: %{y:.3f} [%{customdata[0]:.3f}, %{customdata[1]:.3f}]<extra></extra>` },
+  ];
+}
+const cfg = { displayModeBar: false };
+// Size from the container explicitly: Plotly's autosize can pick a stale width on first paint (mobile).
+function plot(id, traces, lay) {
+  const el = document.getElementById(id);
+  Plotly.react(el, traces, Object.assign(lay, { autosize: false, width: el.clientWidth, height: el.clientHeight }), cfg);
+}
+
+function drawSkill(t) {
+  const e = D.experiments[state.exp];
+  document.getElementById("exp-title").textContent = e.title;
+  document.getElementById("exp-note").textContent = e.note + " Shaded band = 95% CI.";
+  const tr = e.series.flatMap(s => skillTraces(t, s.rows, s.label, t.series[s.slot], s.dash));
+  plot("skill", tr, layout(t, "Brier skill score vs climatology"));
+}
+function drawGroups(t) {
+  const tr = D.groups.flatMap((g, i) => {
+    const rows = D.group_scores.filter(r => r.group === g && r.model === state.model).sort((a, b) => a.lead - b.lead);
+    return skillTraces(t, rows, `${GROUP_LABEL[g]} (alert ${(rows[0].base_rate * 100).toFixed(0)}% of hours)`, t.series[i], "solid");
+  });
+  plot("groups", tr, layout(t, "BSS vs climatology"), cfg);
+}
+function drawCalib(t) {
+  const rows = D.calibration.filter(r => r.model === state.model && r.lead === state.lead && r.n >= 50);
+  document.getElementById("calib-sub").textContent =
+    `${MODEL_LABEL[state.model]}, lead ${state.lead} h; bins of 0.1 with at least 50 forecasts.`;
+  const tr = [
+    { x: [0, 1], y: [0, 1], mode: "lines", line: { color: t.muted, width: 1, dash: "dash" }, hoverinfo: "skip", showlegend: false },
+    { x: rows.map(r => r.p), y: rows.map(r => r.y), customdata: rows.map(r => r.n), mode: "lines+markers", name: "Forecasts",
+      line: { color: t.series[0], width: 2 }, marker: { size: 9, color: t.series[0], line: { color: t.surface, width: 2 } },
+      hovertemplate: "forecast %{x:.2f} → observed %{y:.2f}<br>n = %{customdata:,}<extra></extra>" },
+  ];
+  const lay = layout(t, "Observed frequency", { showlegend: false, hovermode: "closest" });
+  lay.xaxis = Object.assign({}, lay.xaxis, { type: "linear", tickvals: null, ticktext: null, range: [0, 1], title: { text: "Forecast probability" } });
+  lay.yaxis = Object.assign({}, lay.yaxis, { range: [0, 1] });
+  lay.shapes = [];
+  plot("calib", tr, lay, cfg);
+}
+function drawRegions(t) {
+  const sel = D.region_scores.filter(r => r.model === state.model && r.lead === state.lead);
+  const rows = sel.filter(r => r.bss !== null && r.bss_lo !== null).sort((a, b) => a.bss - b.bss);
+  const undef = sel.filter(r => !rows.includes(r)).map(r => r.region.replace(" oblast", ""));
+  document.getElementById("regions-sub").textContent =
+    `${MODEL_LABEL[state.model]}, lead ${state.lead} h. Bars = BSS, whiskers = 95% CI (500 day resamples); colour = region group.` +
+    (undef.length ? ` Not shown: ${undef.join(", ")} — no alert in the test period, so BSS is undefined.` : "");
+  const tr = D.groups.map((g, i) => {
+    const r = rows.filter(x => x.group === g);
+    return { type: "bar", orientation: "h", name: GROUP_LABEL[g], y: r.map(x => x.region.replace(" oblast", "")), x: r.map(x => x.bss),
+      marker: { color: t.series[i], line: { color: t.surface, width: 1 } },
+      error_x: { type: "data", symmetric: false, array: r.map(x => x.bss_hi - x.bss), arrayminus: r.map(x => x.bss - x.bss_lo),
+                 color: t.ink2, thickness: 1, width: 0 },
+      customdata: r.map(x => [x.bss_lo, x.bss_hi, x.base_rate * 100]),
+      hovertemplate: "%{y}: %{x:.3f} [%{customdata[0]:.3f}, %{customdata[1]:.3f}]<br>alert in %{customdata[2]:.0f}% of hours<extra></extra>" };
+  });
+  const lay = layout(t, "", { hovermode: "closest", barmode: "overlay", bargap: 0.25, margin: { l: 150, r: 12, t: 36, b: 48 } });
+  lay.xaxis = { title: { text: "Brier skill score vs climatology" }, gridcolor: t.grid, linecolor: t.axis, zeroline: true,
+                zerolinecolor: t.muted, tickformat: ".2f", fixedrange: true };
+  lay.yaxis = { categoryorder: "array", categoryarray: rows.map(x => x.region.replace(" oblast", "")), gridcolor: t.grid,
+                linecolor: t.axis, fixedrange: true, automargin: true };
+  lay.shapes = [];
+  plot("regions", tr, lay, cfg);
+}
+function drawTable() {
+  const e = D.experiments[state.exp], all = e.series.concat(e.table_only || []);
+  let h = "<table><thead><tr><th>Model</th>" + LEADS.map(l => `<th>${l} h</th>`).join("") + "</tr></thead><tbody>";
+  for (const s of all) {
+    h += `<tr><td>${s.label}</td>` + s.rows.map(r => s.key === "pers" ? `<td>${f3(r.bss)}</td>`
+      : `<td>${f3(r.bss)} [${f3(r.bss_lo)}, ${f3(r.bss_hi)}]</td>`).join("") + "</tr>";
+  }
+  document.getElementById("table").innerHTML = h + "</tbody></table>";
+  let hz = "<table><thead><tr><th>Model</th><th>Horizon</th><th>Strict horizon</th></tr></thead><tbody>";
+  for (const r of D.horizons) hz += `<tr><td>${r.label}</td><td>${r.horizon_h} h</td><td>${r.horizon_strict_h} h</td></tr>`;
+  document.getElementById("htable").innerHTML = hz + "</tbody></table>";
+}
+function drawTiles() {
+  const hz = Object.fromEntries(D.horizons.map(r => [r.model, r]));
+  const m1 = D.experiments.models.series.find(s => s.key === state.model).rows.find(r => r.lead === 1);
+  const tiles = [
+    [`${hz[state.model].horizon_strict_h} h`, `Strict horizon, ${MODEL_LABEL[state.model]}`],
+    [`${hz[state.model].horizon_h} h`, "Largest lead with CI above 0"],
+    [f3(m1.bss), "BSS at lead 1 h"],
+    [`${(D.meta.base_rate * 100).toFixed(0)}%`, "Oblast-hours under alert in test"],
+  ];
+  document.getElementById("tiles").innerHTML = tiles.map(([v, k]) => `<div class="tile"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
+}
+function render() {
+  const t = T();
+  document.querySelectorAll("#exp button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === state.exp));
+  document.querySelectorAll("#theme button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === state.theme));
+  drawTiles(); drawSkill(t); drawGroups(t); drawCalib(t); drawRegions(t); drawTable();
+}
+let resizeTimer;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); });
+function applyTheme() {
+  if (state.theme === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", state.theme);
+}
+
+document.getElementById("lead").innerHTML = LEADS.map(l => `<option value="${l}">${l} h</option>`).join("");
+document.getElementById("lead").value = state.lead;
+document.getElementById("model").value = state.model;
+document.getElementById("m-period").textContent = `${D.meta.issue_from} – ${D.meta.issue_to}`;
+document.getElementById("m-days").textContent = D.meta.n_days;
+document.getElementById("foot").textContent = `${D.meta.n_regions} oblasts · built ${D.meta.built}`;
+document.querySelectorAll("#exp button").forEach(b => b.onclick = () => { state.exp = b.dataset.v; save(); render(); });
+document.querySelectorAll("#theme button").forEach(b => b.onclick = () => { state.theme = b.dataset.v; save(); applyTheme(); render(); });
+document.getElementById("model").onchange = e => { state.model = e.target.value; save(); render(); };
+document.getElementById("lead").onchange = e => { state.lead = +e.target.value; save(); render(); };
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+applyTheme(); render();
+</script>
+</body>
+</html>

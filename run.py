@@ -13,7 +13,8 @@ LADDER = {"A": G["A"], "AB": G["A"] + G["B"], "ABC": G["A"] + G["B"] + G["C"],
 EXPERIMENTS = {
     "main": dict(specs={"logit": ("logit", ALL), "hgb": ("hgb", ALL)}),
     "ablation": dict(specs={f"hgb_{k}": ("hgb", fs) for k, fs in LADDER.items()}),
-    "window": dict(specs={"hgb_last_60d": ("hgb", ALL)}, window_days=config.RECENT_WINDOW_DAYS),
+    "window": dict(specs={"hgb_last_60d": ("hgb", ALL), "logit_last_60d": ("logit", ALL)},
+                   window_days=config.RECENT_WINDOW_DAYS),
     "naive": dict(specs={"hgb_no_naive": ("hgb", ALL)}, drop_naive=True),
 }
 
