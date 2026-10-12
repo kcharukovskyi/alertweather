@@ -10,9 +10,10 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 import config
-from alerts.features import MIN_TAU, design
+from alerts.features import CLIMS, MIN_TAU, design
 
 HOUR = pd.Timedelta(hours=1)
+BASELINES = list(CLIMS)  # clim (reference), clim7, clim14, climdow
 
 
 def test_weeks(grid):
@@ -44,7 +45,8 @@ def make_model(kind, names):
 
 def walk_forward(P, F, specs, window_days=config.TRAIN_WINDOW_DAYS, leads=config.LEADS):
     """specs: {name: (kind, feature names)}. Returns test predictions, one row per (tau, region, lead)."""
-    names = list(dict.fromkeys(["clim", "active_now"] + [f for _, fs in specs.values() for f in fs]))
+    names = list(dict.fromkeys(["region", "active_now"] + BASELINES
+                               + [f for _, fs in specs.values() for f in fs]))
     R = len(config.REGIONS)
     out = []
     for L in leads:
@@ -59,8 +61,17 @@ def walk_forward(P, F, specs, window_days=config.TRAIN_WINDOW_DAYS, leads=config
             frame = pd.DataFrame({
                 "tau": np.repeat(P.grid[te], R), "region": np.tile(config.REGIONS, len(te)),
                 "lead": L, "week": w, "y": yte,
-                "clim": Xte[:, names.index("clim")], "pers": Xte[:, names.index("active_now")],
+                "pers": Xte[:, names.index("active_now")],
+                **{b: Xte[:, names.index(b)] for b in BASELINES},
             })
+            # Calibrated persistence: P(y | state now) per region, estimated on the training rows.
+            reg_tr, a_tr = Xtr[:, names.index("region")].astype(int), Xtr[:, names.index("active_now")]
+            lookup = np.zeros((R, 2))
+            for a in (0, 1):
+                m = a_tr == a
+                lookup[:, a] = np.bincount(reg_tr[m], ytr[m], R) / np.maximum(np.bincount(reg_tr[m], minlength=R), 1)
+            frame["pers_cal"] = lookup[Xte[:, names.index("region")].astype(int),
+                                       Xte[:, names.index("active_now")].astype(int)]
             for name, (kind, feats) in specs.items():
                 cols = [names.index(f) for f in feats]
                 model = make_model(kind, feats).fit(Xtr[:, cols], ytr)
@@ -70,8 +81,8 @@ def walk_forward(P, F, specs, window_days=config.TRAIN_WINDOW_DAYS, leads=config
     return pd.concat(out, ignore_index=True)
 
 
-def scores(df, models, by=None, n_boot=config.N_BOOT, seed=config.SEED):
-    """Brier, BSS vs climatology with a 95% bootstrap CI over days (Kyiv dates), log-loss."""
+def scores(df, models, by=None, n_boot=config.N_BOOT, seed=config.SEED, ref="clim"):
+    """Brier, BSS vs the reference column with a 95% bootstrap CI over days (Kyiv dates), log-loss."""
     rng = np.random.default_rng(seed)
     df = df.assign(day=df["tau"].dt.tz_convert(config.TZ).dt.date)
     keys = ["lead"] + ([by] if by else [])
@@ -80,10 +91,10 @@ def scores(df, models, by=None, n_boot=config.N_BOOT, seed=config.SEED):
         day, _ = pd.factorize(g["day"])
         D = day.max() + 1
         y = g["y"].to_numpy(float)
-        ref = np.bincount(day, (g["clim"].to_numpy(float) - y) ** 2, D)
+        se_ref = np.bincount(day, (g[ref].to_numpy(float) - y) ** 2, D)
         idx = rng.integers(0, D, (n_boot, D))
-        ref_b = ref[idx].sum(1)
-        for m in ["clim"] + models:
+        ref_b = se_ref[idx].sum(1)
+        for m in dict.fromkeys([ref] + models):
             p = g[m].to_numpy(float)
             se = np.bincount(day, (p - y) ** 2, D)
             boot = 1 - se[idx].sum(1) / ref_b
@@ -91,7 +102,7 @@ def scores(df, models, by=None, n_boot=config.N_BOOT, seed=config.SEED):
             rows.append({
                 **dict(zip(keys, key if isinstance(key, tuple) else (key,))),
                 "model": m, "n": len(y), "base_rate": y.mean(), "brier": se.sum() / len(y),
-                "bss": 1 - se.sum() / ref.sum(),
+                "bss": 1 - se.sum() / se_ref.sum(),
                 "bss_lo": np.percentile(boot, 2.5), "bss_hi": np.percentile(boot, 97.5),
                 "logloss": -np.mean(y * np.log(pc) + (1 - y) * np.log(1 - pc)),
             })

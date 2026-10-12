@@ -16,6 +16,8 @@ EXPERIMENTS = {
     "window": dict(specs={"hgb_last_60d": ("hgb", ALL), "logit_last_60d": ("logit", ALL)},
                    window_days=config.RECENT_WINDOW_DAYS),
     "naive": dict(specs={"hgb_no_naive": ("hgb", ALL)}, drop_naive=True),
+    # No fitted models: stronger reference forecasts, scored against the 28-day climatology.
+    "baselines": dict(specs={}, models=["pers", "pers_cal", "clim7", "clim14", "clim56", "climdow"]),
 }
 
 
@@ -35,7 +37,7 @@ def run(name):
     pred = evaluate.walk_forward(P, F, exp["specs"], window_days=exp.get("window_days", config.TRAIN_WINDOW_DAYS))
     config.DATA_PROC.mkdir(parents=True, exist_ok=True)
     pred.to_parquet(config.DATA_PROC / f"pred_{name}.parquet")
-    models = (["pers"] if name == "main" else []) + list(exp["specs"])
+    models = exp.get("models", (["pers"] if name == "main" else []) + list(exp["specs"]))
     tab = evaluate.scores(pred, models)
     tab.to_csv(config.RESULTS / f"scores_{name}.csv", index=False)
     if name == "main":

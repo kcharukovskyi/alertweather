@@ -76,26 +76,42 @@ def build_features(P, adj, lat, lon):
         F[name] = np.repeat(v[:, None], R, axis=1)
     F["sun_elev"], F["h_since_sunset"] = _solar(P.grid, lat, lon)
 
-    # clim_base[t] = share of alert in the same UTC hour over the 28 days before bucket t.
-    n = config.CLIM_DAYS
-    acc = np.zeros((T, R))
-    for k in range(1, n + 1):
-        acc[24 * k:] += Y[:-24 * k]
-    F["_clim_base"] = np.where(np.arange(T)[:, None] >= 24 * n, acc / n, np.nan)
+    # Climatology bases: share of alert in the same UTC hour over the n periods before bucket t.
+    for name, (base, period, n) in CLIMS.items():
+        F[base] = _lag_mean(Y, period, n)
     return {k: np.ascontiguousarray(v, dtype=np.float32) for k, v in F.items()}
+
+
+# name -> (base array, period in hours, number of periods). "clim" is the reference baseline.
+CLIMS = {
+    "clim": ("_clim_base", 24, config.CLIM_DAYS),
+    "clim7": ("_clim7_base", 24, 7),
+    "clim14": ("_clim14_base", 24, 14),
+    "clim56": ("_clim56_base", 24, 56),
+    "climdow": ("_climdow_base", 168, 4),  # same hour and weekday, last 4 weeks
+}
+
+
+def _lag_mean(Y, period, n):
+    """mean of Y[t - period*k], k = 1..n (nan where history is shorter)."""
+    acc = np.zeros(Y.shape)
+    for k in range(1, n + 1):
+        acc[period * k:] += Y[:-period * k]
+    return np.where(np.arange(len(Y))[:, None] >= period * n, acc / n, np.nan)
 
 
 def design(F, Y, L, tau, names):
     """Rows ordered (tau, region). Returns X (n*R, len(names)) and y for bucket tau+L."""
     t_star = tau + L
-    # Shift the climatology anchor back by whole days so its newest bucket (anchor-24) has ended
-    # by tau: k0 = ceil((L+1)/24) days, e.g. L=24 cannot use bucket tau, which is still running.
-    anchor = t_star - 24 * (-(-(L + 1) // 24) - 1)
-    assert (anchor - 24 + 1 <= tau).all(), "climatology would use an unfinished hour"
     cols = []
     for n in names:
-        if n == "clim":
-            src = F["_clim_base"][anchor]
+        if n in CLIMS:
+            # Shift the anchor back by whole periods so its newest bucket (anchor - period) has ended
+            # by tau: k0 = ceil((L+1)/period), e.g. L=24 cannot use bucket tau, which is still running.
+            base, period, _ = CLIMS[n]
+            anchor = t_star - period * (-(-(L + 1) // period) - 1)
+            assert (anchor - period + 1 <= tau).all(), "climatology would use an unfinished hour"
+            src = F[base][anchor]
         elif n in TARGET_TIME:
             src = F[n][t_star]
         else:
