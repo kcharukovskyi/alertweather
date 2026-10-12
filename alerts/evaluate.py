@@ -16,9 +16,9 @@ HOUR = pd.Timedelta(hours=1)
 BASELINES = list(CLIMS)  # clim (reference), clim7, clim14, climdow
 
 
-def test_weeks(grid):
+def test_weeks(grid, start=config.TEST_START):
     """(start, end) hour indices of issue-time blocks; the model is refit at each start."""
-    start = pd.Timestamp(config.TEST_START, tz=config.TZ).tz_convert("UTC")
+    start = pd.Timestamp(start, tz=config.TZ).tz_convert("UTC")
     # Issue times (exclusive end) whose longest-lead target bucket [tau+L, tau+L+1h) ends by TEST_END.
     stop = pd.Timestamp(config.TEST_END, tz=config.TZ).tz_convert("UTC") - max(config.LEADS) * HOUR
     idx = lambda ts: int((ts - grid[0]) / HOUR)
@@ -43,7 +43,8 @@ def make_model(kind, names):
     return make_pipeline(pre, LogisticRegression(C=1.0, max_iter=2000))
 
 
-def walk_forward(P, F, specs, window_days=config.TRAIN_WINDOW_DAYS, leads=config.LEADS):
+def walk_forward(P, F, specs, window_days=config.TRAIN_WINDOW_DAYS, leads=config.LEADS,
+                 test_start=config.TEST_START):
     """specs: {name: (kind, feature names)}. Returns test predictions, one row per (tau, region, lead)."""
     names = list(dict.fromkeys(["region", "active_now"] + BASELINES
                                + [f for _, fs in specs.values() for f in fs]))
@@ -51,13 +52,13 @@ def walk_forward(P, F, specs, window_days=config.TRAIN_WINDOW_DAYS, leads=config
     out = []
     for L in leads:
         t0 = time.time()
-        for w, (ws, we) in enumerate(test_weeks(P.grid)):
+        for w, (ws, we) in enumerate(test_weeks(P.grid, test_start)):
             lo = MIN_TAU if window_days is None else max(MIN_TAU, ws - window_days * 24)
             tr = np.arange(lo, ws - L)  # label bucket [tau+L, tau+L+1h) ends by the refit time
             te = np.arange(ws, we)
             assert tr[-1] + L + 1 <= ws and we + L <= len(P.grid)
-            Xtr, ytr = design(F, P.Y, L, tr, names)
-            Xte, yte = design(F, P.Y, L, te, names)
+            Xtr, ytr = design(F, F["_target"], L, tr, names)
+            Xte, yte = design(F, F["_target"], L, te, names)
             frame = pd.DataFrame({
                 "tau": np.repeat(P.grid[te], R), "region": np.tile(config.REGIONS, len(te)),
                 "lead": L, "week": w, "y": yte,

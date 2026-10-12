@@ -47,7 +47,8 @@ def _solar(grid, lat, lon):
     return elev, ((hour * 60 - sunset) / 60) % 24
 
 
-def build_features(P, adj, lat, lon):
+def build_features(P, adj, lat, lon, target="alert"):
+    """target: "alert" = under alert at any moment of the hour; "onset" = a new alert starts in it."""
     T, R = P.Y.shape
     Y, A, S = (x.astype(np.float32) for x in (P.Y, P.A, P.S))
     nat = lambda X: np.repeat(X.mean(1, keepdims=True), R, axis=1)
@@ -76,9 +77,10 @@ def build_features(P, adj, lat, lon):
         F[name] = np.repeat(v[:, None], R, axis=1)
     F["sun_elev"], F["h_since_sunset"] = _solar(P.grid, lat, lon)
 
-    # Climatology bases: share of alert in the same UTC hour over the n periods before bucket t.
+    F["_target"] = Y if target == "alert" else (S > 0).astype(np.float32)
+    # Climatology bases: share of target hours in the same UTC hour over the n periods before bucket t.
     for name, (base, period, n) in CLIMS.items():
-        F[base] = _lag_mean(Y, period, n)
+        F[base] = _lag_mean(F["_target"], period, n)
     return {k: np.ascontiguousarray(v, dtype=np.float32) for k, v in F.items()}
 
 

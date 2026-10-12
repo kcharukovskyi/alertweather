@@ -89,11 +89,25 @@ One pooled model per lead for all 24 regions.
 
 Ablation adds groups cumulatively (A → AB → ABC → ABCD → ABCDE) with gradient boosting.
 
+## Additional checks
+
+| Check | How | Where |
+|---|---|---|
+| Stronger reference forecasts | climatology over 7, 14, 56 days; same hour and weekday over 4 weeks; persistence turned into a probability per oblast (P(alert \| state now), fitted on training rows) | `run.py baselines`, `results/diag_baselines.csv` |
+| Skill vs every reference | BSS of the fitted models against each reference, day-bootstrap CI | `diagnose.py`, `results/diag_vs_baselines.csv` |
+| Where the skill comes from | Murphy decomposition of the Brier score (reliability, resolution, uncertainty), ROC-AUC, PR-AUC | `results/diag_murphy.csv` |
+| Stability | BSS separately for each of the 6 weekly refits | `results/diag_weekly.csv` |
+| Finer lead grid | leads 36 h and 60 h added to the main run | `results/scores_main.csv` |
+| Longer test | same pipeline, issue times from 1 May 2026 (23 weekly refits), leads 1, 6, 24, 72 h | `run.py longtest`, `results/scores_longtest.csv` |
+| Alternative target | "a new alert starts in the hour [τ+L, τ+L+1h)"; reference = 28-day climatology of starts | `run.py onset`, `results/scores_onset.csv` |
+
 ## Run
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python run.py main ablation window naive   # downloads data, ~15-20 min on 8 cores
+.venv/bin/python run.py baselines longtest onset      # additional checks
+.venv/bin/python diagnose.py                         # baselines, Murphy, AUC, weekly BSS
 .venv/bin/python report.py                           # figures + tables in results/
 .venv/bin/python tools/build_dashboard.py            # docs/index.html for GitHub Pages
 ```

@@ -30,14 +30,14 @@ def main():
     nai = pd.read_csv(RES / "scores_naive.csv")
     experiments = {
         "models": {
-            "title": "Models vs climatology",
+            "short": "Models", "title": "Models vs climatology",
             "note": "Persistence (the 0/1 state at issue time) is far below zero at every lead and is shown in the table only.",
             "series": [series(m, "hgb", "hgb", "Gradient boosting", 0),
                        series(m, "logit", "logit", "Logistic regression", 1)],
             "table_only": [series(m, "pers", "pers", "Persistence", 2)],
         },
         "ablation": {
-            "title": "Feature groups added cumulatively (gradient boosting)",
+            "short": "Feature groups", "title": "Feature groups added cumulatively (gradient boosting)",
             "note": "Each line adds one group to the previous set.",
             "series": [series(abl, "hgb_A", "A", "A: calendar + climatology", 0),
                        series(abl, "hgb_AB", "AB", "+ B: own history", 1),
@@ -46,7 +46,7 @@ def main():
                        series(m, "hgb", "ABCDE", "+ E: sunset / darkness", 4)],
         },
         "window": {
-            "title": "Training window: last 12 months vs last 2 months",
+            "short": "Training window", "title": "Training window: last 12 months vs last 2 months",
             "note": "Colour = model, dashed = 2-month window.",
             "series": [series(m, "hgb", "hgb12", "Gradient boosting, 12 months", 0),
                        series(win, "hgb_last_60d", "hgb2", "Gradient boosting, 2 months", 0, "dash"),
@@ -54,12 +54,40 @@ def main():
                        series(win, "logit_last_60d", "logit2", "Logistic regression, 2 months", 1, "dash")],
         },
         "naive": {
-            "title": "Records with an invented end (naive=True)",
+            "short": "Naive records", "title": "Records with an invented end (naive=True)",
             "note": "Dropping them changes the target too, so the two lines are not scored on identical labels.",
             "series": [series(m, "hgb", "all", "All records (main)", 0),
                        series(nai, "hgb_no_naive", "nonaive", "Without naive records", 0, "dash")],
         },
     }
+
+    optional = lambda name: pd.read_csv(RES / name) if (RES / name).exists() else None
+    base = optional("diag_baselines.csv")
+    if base is not None:
+        experiments["baselines"] = {
+            "short": "Baselines", "title": "Reference forecasts vs the 28-day climatology",
+            "note": "Below zero = worse than the 28-day hour-of-day climatology used as the reference everywhere else.",
+            "series": [series(base, "pers_cal", "pers_cal", "Persistence as probability (per oblast)", 0),
+                       series(base, "clim7", "clim7", "Climatology, 7 days", 1),
+                       series(base, "clim14", "clim14", "Climatology, 14 days", 2),
+                       series(base, "clim56", "clim56", "Climatology, 56 days", 3),
+                       series(base, "climdow", "climdow", "Same hour and weekday, 4 weeks", 4)]}
+    long = optional("scores_longtest.csv")
+    if long is not None:
+        experiments["longtest"] = {
+            "short": "Longer test", "title": "Longer test: issue times from 1 May 2026, 23 weekly refits",
+            "note": "Same models and features; about 4x more test days, so intervals are narrower.",
+            "series": [series(long, "hgb", "hgb", "Gradient boosting", 0),
+                       series(long, "logit", "logit", "Logistic regression", 1)]}
+    onset = optional("scores_onset.csv")
+    if onset is not None:
+        experiments["onset"] = {
+            "short": "Onset target", "title": "Alternative target: a new alert starts in the hour [τ+L, τ+L+1h)",
+            "note": "Reference = 28-day climatology of alert starts in that hour.",
+            "series": [series(onset, "hgb", "hgb", "Gradient boosting", 0),
+                       series(onset, "logit", "logit", "Logistic regression", 1)],
+            "table_only": [series(onset, "pers_cal", "pers_cal", "Persistence as probability", 2)]}
+    murphy = optional("diag_murphy.csv")
 
     group = pd.read_csv(RES / "scores_main_by_group.csv")
     group = group[group["model"].isin(["hgb", "logit"])]
@@ -93,6 +121,7 @@ def main():
         "region_scores": reg[["region", "group", "model"] + COLS].round(5).to_dict(orient="records"),
         "calibration": calib,
         "horizons": hz.to_dict(orient="records"),
+        "murphy": murphy.round(4).to_dict(orient="records") if murphy is not None else [],
         "meta": {
             "issue_from": tau.min().strftime("%Y-%m-%d %H:%M"),
             "issue_to": tau.max().strftime("%Y-%m-%d %H:%M"),

@@ -1,13 +1,13 @@
 model,horizon_h,horizon_strict_h,center,front,west
 clim,0,0,0.0,0.0,0.0
-hgb,72,24,12.0,72.0,12.0
+hgb,72,36,12.0,72.0,12.0
 hgb_A,0,0,,,
 hgb_AB,72,72,,,
 hgb_ABC,72,24,,,
 hgb_ABCD,72,24,,,
-hgb_ABCDE,72,24,,,
+hgb_ABCDE,72,36,,,
 hgb_last_60d,0,0,,,
 hgb_no_naive,72,24,,,
-logit,72,72,24.0,72.0,24.0
+logit,72,72,36.0,72.0,36.0
 logit_last_60d,24,24,,,
 pers,0,0,0.0,0.0,0.0

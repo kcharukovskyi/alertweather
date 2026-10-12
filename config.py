@@ -19,7 +19,7 @@ GEOJSON_URL = (
 )
 
 TZ = "Europe/Kyiv"
-LEADS = [1, 2, 3, 6, 12, 24, 48, 72]  # hours ahead; target = hour bucket [tau+L, tau+L+1h)
+LEADS = [1, 2, 3, 6, 12, 24, 36, 48, 60, 72]  # hours ahead; target = hour bucket [tau+L, tau+L+1h)
 
 # Test: issue times from TEST_START (Kyiv) on, retrained weekly. Data is cut at TEST_END (Kyiv,
 # exclusive) and the last issue time is TEST_END - max(LEADS), so every lead is scored on the
@@ -27,6 +27,7 @@ LEADS = [1, 2, 3, 6, 12, 24, 48, 72]  # hours ahead; target = hour bucket [tau+L
 TEST_START = "2026-09-01"
 TEST_END = "2026-10-12"
 RETRAIN_DAYS = 7
+LONG_TEST_START = "2026-05-01"  # robustness: same pipeline, ~5 months of issue times
 
 TRAIN_WINDOW_DAYS = 365  # base; the "recent" run uses 60 days (jet Shaheds, two-level alerts)
 RECENT_WINDOW_DAYS = 60

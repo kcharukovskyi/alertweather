@@ -1,6 +1,49 @@
-"""Claude Code session JSONL -> readable Markdown log: python export_log.py in.jsonl out.md"""
+"""Claude Code session JSONL -> readable Markdown log.
+
+python tools/export_log.py in.jsonl out.md [--redact term1,term2]
+
+Confidential data is redacted from the whole output (see redact()); extra private terms
+(e.g. names of other machines) are passed on the command line so they never live in the repo.
+"""
 import json
+import re
 import sys
+
+# Public addresses that are part of the work itself (repo remotes, commit co-author) are kept.
+KEEP_EMAILS = ("git@github.com", "git@gitlab.com", "noreply@anthropic.com")
+
+
+def redact(text, extra_terms=()):
+    """Replace personal and machine-identifying data with visible [REDACTED: ...] markers."""
+    fragments = set()
+
+    def email(m):
+        if m.group(0).endswith(KEEP_EMAILS):
+            return m.group(0)
+        local, domain = m.group(0).split("@")
+        fragments.add(re.escape(local))
+        # first two domain labels, also when written with escaped dots in commands
+        fragments.add(r"(?:\\)*\.".join(map(re.escape, domain.split(".")[:2])))
+        return "[REDACTED: email]"
+
+    def uid(m):
+        fragments.add(m.group(0)[:8])
+        return "[REDACTED: id]"
+    text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", email, text)
+    text = re.sub(r"(?:ssh-(?:ed25519|rsa|dss)|ecdsa-sha2-nistp\d+)\s+AAAA[0-9A-Za-z+/]+={0,3}",
+                  "[REDACTED: SSH public key]", text)
+    text = re.sub(r"AAAA[BC]3NzaC1[0-9A-Za-z+/]{20,}={0,3}", "[REDACTED: key material]", text)
+    text = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "[REDACTED: IP]", text)
+    text = re.sub(r"/tmp/claude-\d+/[^/\s\"']+/[0-9a-f-]{36}/scratchpad", "<scratchpad>", text)
+    text = re.sub(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", uid, text)
+    # Fragments of redacted values that appear on their own (e.g. inside search commands).
+    for frag in fragments:
+        text = re.sub(frag, "[REDACTED: fragment]", text)
+    text = re.sub(r"/home/[A-Za-z0-9_.-]+", "~", text)
+    text = re.sub(r"-home-[A-Za-z0-9_.]+-", "-home-~-", text)
+    for term in extra_terms:
+        text = re.sub(re.escape(term), "[REDACTED: private name]", text)
+    return text
 
 
 def clip(s, n):
@@ -33,7 +76,11 @@ for line in open(sys.argv[1], encoding="utf-8"):
     d = json.loads(line)
     ts = d.get("timestamp", "")[:19].replace("T", " ")
     if d.get("type") == "attachment" and d["attachment"].get("type") == "queued_command":
-        user(text_of(d['attachment']['prompt']), ts, " (sent while the agent was working)")
+        text = text_of(d['attachment']['prompt'])
+        if "<task-notification>" in text:
+            out.append(f"\n_[system: background job event — {ts} UTC]_\n")
+        else:
+            user(text, ts, " (sent while the agent was working)")
         continue
     msg = d.get("message")
     if d.get("type") not in ("user", "assistant") or not msg:
@@ -68,8 +115,16 @@ for line in open(sys.argv[1], encoding="utf-8"):
                        "file; the next assistant message states what it changed]**\n")
 
 head = ["# AI interaction log — Claude Code (Opus 5.5)\n",
+        "> **Redaction note.** Confidential data was removed automatically by `tools/export_log.py` "
+        "before publishing: e-mail addresses, SSH public keys, IP addresses, session/organisation IDs, "
+        "local user paths and names of other machines. Each removal is marked `[REDACTED: …]` "
+        "(paths become `~` / `<scratchpad>`). Nothing else was edited.\n",
+        "<!-- Redacted at the user's request on 2026-10-12; see redact() in tools/export_log.py. -->\n",
         "User requests are numbered and quoted; assistant replies are shown in full; tool calls and "
         "their outputs are collapsed under each step.\n", "## Index of user requests\n", *user_turns, ""]
 out = head + out
-open(sys.argv[2], "w", encoding="utf-8").write("\n".join(out))
+extra = []
+if "--redact" in sys.argv:
+    extra = [t for t in sys.argv[sys.argv.index("--redact") + 1].split(",") if t]
+open(sys.argv[2], "w", encoding="utf-8").write(redact("\n".join(out), extra))
 print(sys.argv[2], sum(len(x) for x in out), "chars")

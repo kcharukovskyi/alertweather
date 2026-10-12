@@ -16,25 +16,32 @@ EXPERIMENTS = {
     "window": dict(specs={"hgb_last_60d": ("hgb", ALL), "logit_last_60d": ("logit", ALL)},
                    window_days=config.RECENT_WINDOW_DAYS),
     "naive": dict(specs={"hgb_no_naive": ("hgb", ALL)}, drop_naive=True),
+    # Same models, 23 weekly refits from 1 May instead of 6 from 1 Sep: narrower intervals.
+    "longtest": dict(specs={"logit": ("logit", ALL), "hgb": ("hgb", ALL)}, test_start=config.LONG_TEST_START,
+                     leads=[1, 6, 24, 72]),
+    # Alternative target: does a new alert start in the hour [tau+L, tau+L+1h)?
+    "onset": dict(specs={"logit": ("logit", ALL), "hgb": ("hgb", ALL)}, target="onset",
+                  models=["pers_cal", "logit", "hgb"]),
     # No fitted models: stronger reference forecasts, scored against the 28-day climatology.
     "baselines": dict(specs={}, models=["pers", "pers_cal", "clim7", "clim14", "clim56", "climdow"]),
 }
 
 
-def prepare(drop_naive=False):
+def prepare(drop_naive=False, target="alert"):
     intervals = data.load_intervals(drop_naive=drop_naive)
     P = data.build_panel(intervals)
     adj, lat, lon = geo.region_geo()
     print(f"  {len(intervals):,} merged intervals, panel {P.grid[0]} .. {P.grid[-1]} ({len(P.grid):,} h)")
-    return P, features.build_features(P, adj, lat, lon)
+    return P, features.build_features(P, adj, lat, lon, target)
 
 
 def run(name):
     exp = EXPERIMENTS[name]
     print(f"[{name}]", flush=True)
     t0 = time.time()
-    P, F = prepare(exp.get("drop_naive", False))
-    pred = evaluate.walk_forward(P, F, exp["specs"], window_days=exp.get("window_days", config.TRAIN_WINDOW_DAYS))
+    P, F = prepare(exp.get("drop_naive", False), exp.get("target", "alert"))
+    pred = evaluate.walk_forward(P, F, exp["specs"], window_days=exp.get("window_days", config.TRAIN_WINDOW_DAYS),
+                                 test_start=exp.get("test_start", config.TEST_START), leads=exp.get("leads", config.LEADS))
     config.DATA_PROC.mkdir(parents=True, exist_ok=True)
     pred.to_parquet(config.DATA_PROC / f"pred_{name}.parquet")
     models = exp.get("models", (["pers"] if name == "main" else []) + list(exp["specs"]))

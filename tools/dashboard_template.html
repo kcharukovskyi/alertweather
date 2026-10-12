@@ -83,10 +83,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
 <section class="tiles" id="tiles" aria-label="Key numbers"></section>
 
 <div class="controls" role="group" aria-label="Filters">
-  <div class="seg" id="exp" role="group" aria-label="Comparison">
-    <button data-v="models">Models</button><button data-v="ablation">Feature groups</button>
-    <button data-v="window">Training window</button><button data-v="naive">Naive records</button>
-  </div>
+  <div class="seg" id="exp" role="group" aria-label="Comparison"></div>
   <label class="ctl">Model <select id="model"><option value="hgb">Gradient boosting</option><option value="logit">Logistic regression</option></select></label>
   <label class="ctl">Lead <select id="lead"></select></label>
   <div class="seg" id="theme" role="group" aria-label="Theme">
@@ -230,6 +227,14 @@ function drawTable() {
   document.getElementById("table").innerHTML = h + "</tbody></table>";
   let hz = "<table><thead><tr><th>Model</th><th>Horizon</th><th>Strict horizon</th></tr></thead><tbody>";
   for (const r of D.horizons) hz += `<tr><td>${r.label}</td><td>${r.horizon_h} h</td><td>${r.horizon_strict_h} h</td></tr>`;
+  if (state.exp === "models" && D.murphy.length) {
+    hz += "</tbody></table><table><thead><tr><th>Brier decomposition</th><th>Lead</th><th>Brier</th><th>Reliability (lower = better)</th>" +
+          "<th>Resolution (higher = better)</th><th>Uncertainty</th><th>ROC-AUC</th><th>PR-AUC</th></tr></thead><tbody>";
+    const NM = { clim: "Climatology (28 d)", pers_cal: "Persistence as probability", climdow: "Same hour and weekday", hgb: "Gradient boosting", logit: "Logistic regression" };
+    for (const r of D.murphy.filter(r => r.lead === state.lead))
+      hz += `<tr><td>${NM[r.model] || r.model}</td><td>${r.lead} h</td><td>${r.brier.toFixed(4)}</td><td>${r.reliability.toFixed(4)}</td>` +
+            `<td>${r.resolution.toFixed(4)}</td><td>${r.uncertainty.toFixed(4)}</td><td>${r.roc_auc.toFixed(3)}</td><td>${r.pr_auc.toFixed(3)}</td></tr>`;
+  }
   document.getElementById("htable").innerHTML = hz + "</tbody></table>";
 }
 function drawTiles() {
@@ -256,6 +261,10 @@ function applyTheme() {
   else document.documentElement.setAttribute("data-theme", state.theme);
 }
 
+document.getElementById("exp").innerHTML =
+  Object.entries(D.experiments).map(([k, e]) => `<button data-v="${k}">${e.short}</button>`).join("");
+if (!D.experiments[state.exp]) state.exp = "models";
+if (!LEADS.includes(state.lead)) state.lead = 1;
 document.getElementById("lead").innerHTML = LEADS.map(l => `<option value="${l}">${l} h</option>`).join("");
 document.getElementById("lead").value = state.lead;
 document.getElementById("model").value = state.model;
